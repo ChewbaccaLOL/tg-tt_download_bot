@@ -1,0 +1,21 @@
+{
+  "download_dir": "./data/downloads",
+  "settings_path": "./data/settings.json",
+  "default_quality": "compact",
+  "max_upload_size_mb": 50,
+  "cleanup_after_minutes": 30,
+  "yt_dlp_bin": "yt-dlp",
+  "ffmpeg_bin": "ffmpeg",
+  "allowed_domains": [
+    "tiktok.com",
+    "vm.tiktok.com",
+    "vt.tiktok.com"
+  ],
+  "compact": {
+    "max_height": 720,
+    "crf": 28,
+    "audio_bitrate": "128k",
+    "preset": "veryfast"
+  }
+}
+

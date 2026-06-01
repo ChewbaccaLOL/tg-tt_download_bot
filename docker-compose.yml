@@ -1,0 +1,12 @@
+services:
+  bot:
+    build: .
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      CONFIG_PATH: /app/config.json
+    volumes:
+      - ./config.json:/app/config.json:ro
+      - ./data:/app/data
+
