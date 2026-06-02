@@ -11,6 +11,11 @@
     "vm.tiktok.com",
     "vt.tiktok.com"
   ],
+  "access": {
+    "mode": "public",
+    "whitelist_user_ids": [],
+    "paid_download_stars": 3
+  },
   "compact": {
     "max_height": 720,
     "crf": 28,
@@ -18,4 +23,3 @@
     "preset": "veryfast"
   }
 }
-

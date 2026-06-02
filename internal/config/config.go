@@ -13,6 +13,10 @@ import (
 const (
 	QualityHighest = "highest"
 	QualityCompact = "compact"
+
+	AccessModePublic          = "public"
+	AccessModeWhitelist       = "whitelist"
+	AccessModeWhitelistOrPaid = "whitelist_or_paid"
 )
 
 type CompactConfig struct {
@@ -20,6 +24,12 @@ type CompactConfig struct {
 	CRF          int    `json:"crf"`
 	AudioBitrate string `json:"audio_bitrate"`
 	Preset       string `json:"preset"`
+}
+
+type AccessConfig struct {
+	Mode              string  `json:"mode"`
+	WhitelistUserIDs  []int64 `json:"whitelist_user_ids"`
+	PaidDownloadStars int     `json:"paid_download_stars"`
 }
 
 type Config struct {
@@ -33,6 +43,7 @@ type Config struct {
 	YTDLPBin            string        `json:"yt_dlp_bin"`
 	FFmpegBin           string        `json:"ffmpeg_bin"`
 	AllowedDomains      []string      `json:"allowed_domains"`
+	Access              AccessConfig  `json:"access"`
 	Compact             CompactConfig `json:"compact"`
 }
 
@@ -61,6 +72,9 @@ func Load() (Config, error) {
 	if err := validateQuality(cfg.DefaultQuality); err != nil {
 		return Config{}, err
 	}
+	if err := validateAccessMode(cfg.Access.Mode); err != nil {
+		return Config{}, err
+	}
 
 	cfg.CleanupAfter = time.Duration(cfg.CleanupAfterMinutes) * time.Minute
 	return cfg, nil
@@ -76,6 +90,11 @@ func defaultConfig() Config {
 		YTDLPBin:            "yt-dlp",
 		FFmpegBin:           "ffmpeg",
 		AllowedDomains:      []string{"tiktok.com", "vm.tiktok.com", "vt.tiktok.com"},
+		Access: AccessConfig{
+			Mode:              AccessModePublic,
+			WhitelistUserIDs:  []int64{},
+			PaidDownloadStars: 3,
+		},
 		Compact: CompactConfig{
 			MaxHeight:    720,
 			CRF:          28,
@@ -110,6 +129,12 @@ func applyDefaults(cfg *Config) {
 	if len(cfg.AllowedDomains) == 0 {
 		cfg.AllowedDomains = []string{"tiktok.com", "vm.tiktok.com", "vt.tiktok.com"}
 	}
+	if cfg.Access.Mode == "" {
+		cfg.Access.Mode = AccessModePublic
+	}
+	if cfg.Access.PaidDownloadStars <= 0 {
+		cfg.Access.PaidDownloadStars = 3
+	}
 	if cfg.Compact.MaxHeight <= 0 {
 		cfg.Compact.MaxHeight = 720
 	}
@@ -133,6 +158,15 @@ func validateQuality(quality string) error {
 	}
 }
 
+func validateAccessMode(mode string) error {
+	switch mode {
+	case AccessModePublic, AccessModeWhitelist, AccessModeWhitelistOrPaid:
+		return nil
+	default:
+		return fmt.Errorf("unknown access mode %q", mode)
+	}
+}
+
 func IsSupportedURL(raw string, allowedDomains []string) bool {
 	parsed, err := url.ParseRequestURI(strings.TrimSpace(raw))
 	if err != nil || parsed.Scheme == "" || parsed.Host == "" {
@@ -148,6 +182,15 @@ func IsSupportedURL(raw string, allowedDomains []string) bool {
 	for _, domain := range allowedDomains {
 		domain = strings.TrimPrefix(strings.ToLower(domain), "www.")
 		if host == domain || strings.HasSuffix(host, "."+domain) {
+			return true
+		}
+	}
+	return false
+}
+
+func IsWhitelisted(userID int64, allowed []int64) bool {
+	for _, allowedID := range allowed {
+		if userID == allowedID {
 			return true
 		}
 	}

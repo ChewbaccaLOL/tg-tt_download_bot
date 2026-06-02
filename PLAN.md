@@ -10,9 +10,15 @@ The project is open source and intended for people who want to run their own ins
 
 - Accept a supported video URL in Telegram.
 - Download the video and send it back to the user.
+- Send the result as Telegram media, not as a long-lived local artifact.
+- Remove temporary local files after each upload attempt.
 - Keep one per-user quality setting:
   - `highest`: best available video and best available audio.
   - `compact`: optimized output with smaller file size.
+- Support private-hosted access control:
+  - public mode
+  - whitelist-only mode
+  - whitelist plus Telegram Stars payment for non-whitelisted users
 - Start with TikTok-only support.
 - Keep provider-specific logic isolated so more sites can be added later.
 - Prefer simple self-hosting over complex platform assumptions.
@@ -25,6 +31,7 @@ The project is open source and intended for people who want to run their own ins
 - Video optimization: `ffmpeg` external binary.
 - Config: local JSON config file plus environment variables for secrets.
 - User settings: local JSON state file for the first version.
+- Paid download requests: in-memory pending payments for the first version.
 - Deployment: Docker and Docker Compose.
 - License: MIT.
 
@@ -70,6 +77,7 @@ Later release path:
   - `www.tiktok.com`
   - `vm.tiktok.com`
   - `vt.tiktok.com`
+- Prefer watermark-free downloads through `yt-dlp` whenever TikTok exposes a suitable source. Platform changes may affect this.
 
 ### Later
 
@@ -95,4 +103,3 @@ Later release path:
 ## Legal/Policy Note
 
 The project should clearly state that users are responsible for complying with copyright law, platform terms, and local rules. The bot is a self-hosted tool and should only be used for content the user has rights to access and download.
-

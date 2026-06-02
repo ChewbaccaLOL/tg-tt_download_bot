@@ -9,6 +9,8 @@ The bot has one user-facing quality setting:
 
 The first supported provider is TikTok. The code is structured so YouTube Shorts, Instagram Reels, and other providers can be added later through the same downloader flow.
 
+Videos are downloaded to a temporary per-request directory, sent back as Telegram media, then removed locally.
+
 ## Requirements
 
 For Docker deployment:
@@ -60,6 +62,8 @@ Settings are stored in `data/settings.json`.
 The bot reads config from `config.json` by default. You can override the path with `CONFIG_PATH`.
 
 See [config.example.json](config.example.json).
+
+Access can be public, whitelist-only, or whitelist plus Telegram Stars paid downloads. See [docs/access.md](docs/access.md).
 
 Secrets are read from environment variables:
 

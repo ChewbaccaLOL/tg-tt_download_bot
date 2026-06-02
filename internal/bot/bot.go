@@ -2,11 +2,14 @@ package bot
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"fmt"
 	"log"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/chewbaccalol/tg-tt-download-bot/internal/config"
@@ -25,20 +28,31 @@ type Dependencies struct {
 }
 
 type Bot struct {
-	cfg        config.Config
-	tg         *telegram.Client
-	downloader *downloader.YTDLP
-	optimizer  *video.Optimizer
-	settings   *settings.FileStore
+	cfg             config.Config
+	tg              *telegram.Client
+	downloader      *downloader.YTDLP
+	optimizer       *video.Optimizer
+	settings        *settings.FileStore
+	pendingPayments map[string]pendingPayment
+	paymentsMu      sync.Mutex
+}
+
+type pendingPayment struct {
+	ChatID    int64
+	UserID    int64
+	URL       string
+	Stars     int
+	ExpiresAt time.Time
 }
 
 func New(deps Dependencies) *Bot {
 	return &Bot{
-		cfg:        deps.Config,
-		tg:         deps.Telegram,
-		downloader: deps.Downloader,
-		optimizer:  deps.Optimizer,
-		settings:   deps.Settings,
+		cfg:             deps.Config,
+		tg:              deps.Telegram,
+		downloader:      deps.Downloader,
+		optimizer:       deps.Optimizer,
+		settings:        deps.Settings,
+		pendingPayments: make(map[string]pendingPayment),
 	}
 }
 
@@ -69,8 +83,16 @@ func (b *Bot) Run(ctx context.Context) error {
 }
 
 func (b *Bot) handleUpdate(ctx context.Context, update telegram.Update) {
+	if update.PreCheckoutQuery != nil {
+		b.handlePreCheckout(ctx, update.PreCheckoutQuery)
+		return
+	}
 	if update.CallbackQuery != nil {
 		b.handleCallback(ctx, update.CallbackQuery)
+		return
+	}
+	if update.Message != nil && update.Message.SuccessfulPayment != nil {
+		b.handleSuccessfulPayment(ctx, update.Message)
 		return
 	}
 	if update.Message == nil || strings.TrimSpace(update.Message.Text) == "" {
@@ -82,12 +104,12 @@ func (b *Bot) handleUpdate(ctx context.Context, update telegram.Update) {
 
 	switch {
 	case strings.HasPrefix(text, "/start"), strings.HasPrefix(text, "/help"):
-		_ = b.tg.SendMessage(ctx, msg.Chat.ID, "Send me a TikTok URL and I will download it. Use /settings to switch between highest quality and compact mode.")
+		_ = b.tg.SendMessage(ctx, msg.Chat.ID, "Send me a TikTok URL and I will download it without keeping a local copy after upload. Use /settings to switch between highest quality and compact mode.")
 	case strings.HasPrefix(text, "/settings"):
 		b.sendSettings(ctx, msg.Chat.ID, userID(msg))
 	default:
 		if config.IsSupportedURL(text, b.cfg.AllowedDomains) {
-			go b.downloadAndSend(ctx, msg.Chat.ID, userID(msg), text)
+			b.requestDownload(ctx, msg.Chat.ID, userID(msg), text)
 			return
 		}
 		_ = b.tg.SendMessage(ctx, msg.Chat.ID, "I can download supported TikTok links for now. Send /settings to change quality mode.")
@@ -115,6 +137,66 @@ func (b *Bot) handleCallback(ctx context.Context, query *telegram.CallbackQuery)
 func (b *Bot) sendSettings(ctx context.Context, chatID int64, userID int64) {
 	quality := b.settings.Quality(userID)
 	_ = b.tg.SendMessageWithKeyboard(ctx, chatID, settingsText(quality), settingsKeyboard(quality))
+}
+
+func (b *Bot) requestDownload(ctx context.Context, chatID int64, userID int64, rawURL string) {
+	switch b.accessFor(userID) {
+	case accessAllowed:
+		go b.downloadAndSend(ctx, chatID, userID, rawURL)
+	case accessPaid:
+		payload, err := b.createPendingPayment(chatID, userID, rawURL)
+		if err != nil {
+			log.Printf("create pending payment: %v", err)
+			_ = b.tg.SendMessage(ctx, chatID, "Could not create a payment request.")
+			return
+		}
+
+		stars := b.cfg.Access.PaidDownloadStars
+		err = b.tg.SendInvoice(
+			ctx,
+			chatID,
+			"Video download",
+			fmt.Sprintf("One non-whitelisted download. Whitelisted users download for free. Price: %d Telegram Stars.", stars),
+			payload,
+			stars,
+		)
+		if err != nil {
+			b.deletePendingPayment(payload)
+			log.Printf("send invoice: %v", err)
+			_ = b.tg.SendMessage(ctx, chatID, "Could not send the Telegram Stars invoice.")
+		}
+	default:
+		_ = b.tg.SendMessage(ctx, chatID, fmt.Sprintf("This private bot is limited to approved users. Your Telegram user ID is %d.", userID))
+	}
+}
+
+func (b *Bot) handlePreCheckout(ctx context.Context, query *telegram.PreCheckoutQuery) {
+	payment, ok := b.lookupPendingPayment(query.InvoicePayload)
+	if !ok {
+		_ = b.tg.AnswerPreCheckoutQuery(ctx, query.ID, false, "This payment request expired. Please send the link again.")
+		return
+	}
+	if query.Currency != "XTR" || query.TotalAmount != payment.Stars || query.From.ID != payment.UserID {
+		_ = b.tg.AnswerPreCheckoutQuery(ctx, query.ID, false, "This payment request does not match the pending download.")
+		return
+	}
+	_ = b.tg.AnswerPreCheckoutQuery(ctx, query.ID, true, "")
+}
+
+func (b *Bot) handleSuccessfulPayment(ctx context.Context, msg *telegram.Message) {
+	payment := msg.SuccessfulPayment
+	pending, ok := b.popPendingPayment(payment.InvoicePayload)
+	if !ok {
+		_ = b.tg.SendMessage(ctx, msg.Chat.ID, "Payment received, but the original download request expired. Please contact the bot owner for a refund.")
+		return
+	}
+	if payment.Currency != "XTR" || payment.TotalAmount != pending.Stars {
+		_ = b.tg.SendMessage(ctx, msg.Chat.ID, "Payment received, but the amount did not match the download request. Please contact the bot owner.")
+		return
+	}
+
+	log.Printf("paid download accepted: user=%d stars=%d charge_id=%s", pending.UserID, pending.Stars, payment.TelegramPaymentChargeID)
+	go b.downloadAndSend(ctx, pending.ChatID, pending.UserID, pending.URL)
 }
 
 func (b *Bot) downloadAndSend(ctx context.Context, chatID int64, userID int64, rawURL string) {
@@ -148,8 +230,8 @@ func (b *Bot) downloadAndSend(ctx context.Context, chatID int64, userID int64, r
 		return
 	}
 
-	if err := b.tg.SendDocument(ctx, chatID, outputPath, ""); err != nil {
-		log.Printf("send document failed: %v", err)
+	if err := b.tg.SendVideo(ctx, chatID, outputPath, ""); err != nil {
+		log.Printf("send video failed: %v", err)
 		_ = b.tg.SendMessage(ctx, chatID, "Telegram upload failed.")
 	}
 }
@@ -183,6 +265,84 @@ func settingsKeyboard(quality string) telegram.InlineKeyboardMarkup {
 			{{Text: next, CallbackData: "toggle_quality"}},
 		},
 	}
+}
+
+type accessDecision int
+
+const (
+	accessDenied accessDecision = iota
+	accessAllowed
+	accessPaid
+)
+
+func (b *Bot) accessFor(userID int64) accessDecision {
+	if config.IsWhitelisted(userID, b.cfg.Access.WhitelistUserIDs) {
+		return accessAllowed
+	}
+
+	switch b.cfg.Access.Mode {
+	case config.AccessModePublic:
+		return accessAllowed
+	case config.AccessModeWhitelistOrPaid:
+		return accessPaid
+	default:
+		return accessDenied
+	}
+}
+
+func (b *Bot) createPendingPayment(chatID int64, userID int64, rawURL string) (string, error) {
+	random := make([]byte, 12)
+	if _, err := rand.Read(random); err != nil {
+		return "", err
+	}
+	payload := "download:" + hex.EncodeToString(random)
+
+	b.paymentsMu.Lock()
+	defer b.paymentsMu.Unlock()
+	b.pendingPayments[payload] = pendingPayment{
+		ChatID:    chatID,
+		UserID:    userID,
+		URL:       rawURL,
+		Stars:     b.cfg.Access.PaidDownloadStars,
+		ExpiresAt: time.Now().Add(15 * time.Minute),
+	}
+	return payload, nil
+}
+
+func (b *Bot) lookupPendingPayment(payload string) (pendingPayment, bool) {
+	b.paymentsMu.Lock()
+	defer b.paymentsMu.Unlock()
+
+	payment, ok := b.pendingPayments[payload]
+	if !ok {
+		return pendingPayment{}, false
+	}
+	if time.Now().After(payment.ExpiresAt) {
+		delete(b.pendingPayments, payload)
+		return pendingPayment{}, false
+	}
+	return payment, true
+}
+
+func (b *Bot) popPendingPayment(payload string) (pendingPayment, bool) {
+	b.paymentsMu.Lock()
+	defer b.paymentsMu.Unlock()
+
+	payment, ok := b.pendingPayments[payload]
+	if !ok {
+		return pendingPayment{}, false
+	}
+	delete(b.pendingPayments, payload)
+	if time.Now().After(payment.ExpiresAt) {
+		return pendingPayment{}, false
+	}
+	return payment, true
+}
+
+func (b *Bot) deletePendingPayment(payload string) {
+	b.paymentsMu.Lock()
+	defer b.paymentsMu.Unlock()
+	delete(b.pendingPayments, payload)
 }
 
 func userID(msg *telegram.Message) int64 {

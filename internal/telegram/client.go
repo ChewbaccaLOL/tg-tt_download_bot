@@ -22,16 +22,18 @@ type Client struct {
 }
 
 type Update struct {
-	UpdateID      int            `json:"update_id"`
-	Message       *Message       `json:"message"`
-	CallbackQuery *CallbackQuery `json:"callback_query"`
+	UpdateID         int               `json:"update_id"`
+	Message          *Message          `json:"message"`
+	CallbackQuery    *CallbackQuery    `json:"callback_query"`
+	PreCheckoutQuery *PreCheckoutQuery `json:"pre_checkout_query"`
 }
 
 type Message struct {
-	MessageID int    `json:"message_id"`
-	From      *User  `json:"from"`
-	Chat      Chat   `json:"chat"`
-	Text      string `json:"text"`
+	MessageID         int                `json:"message_id"`
+	From              *User              `json:"from"`
+	Chat              Chat               `json:"chat"`
+	Text              string             `json:"text"`
+	SuccessfulPayment *SuccessfulPayment `json:"successful_payment"`
 }
 
 type User struct {
@@ -51,6 +53,21 @@ type CallbackQuery struct {
 	Data    string   `json:"data"`
 }
 
+type PreCheckoutQuery struct {
+	ID             string `json:"id"`
+	From           User   `json:"from"`
+	Currency       string `json:"currency"`
+	TotalAmount    int    `json:"total_amount"`
+	InvoicePayload string `json:"invoice_payload"`
+}
+
+type SuccessfulPayment struct {
+	Currency                string `json:"currency"`
+	TotalAmount             int    `json:"total_amount"`
+	InvoicePayload          string `json:"invoice_payload"`
+	TelegramPaymentChargeID string `json:"telegram_payment_charge_id"`
+}
+
 type InlineKeyboardMarkup struct {
 	InlineKeyboard [][]InlineKeyboardButton `json:"inline_keyboard"`
 }
@@ -58,6 +75,11 @@ type InlineKeyboardMarkup struct {
 type InlineKeyboardButton struct {
 	Text         string `json:"text"`
 	CallbackData string `json:"callback_data"`
+}
+
+type LabeledPrice struct {
+	Label  string `json:"label"`
+	Amount int    `json:"amount"`
 }
 
 func NewClient(token string) *Client {
@@ -126,7 +148,33 @@ func (c *Client) AnswerCallbackQuery(ctx context.Context, callbackID, text strin
 	return c.postJSON(ctx, "answerCallbackQuery", payload, nil)
 }
 
-func (c *Client) SendDocument(ctx context.Context, chatID int64, path string, caption string) error {
+func (c *Client) SendInvoice(ctx context.Context, chatID int64, title, description, payload string, stars int) error {
+	body := map[string]any{
+		"chat_id":        chatID,
+		"title":          title,
+		"description":    description,
+		"payload":        payload,
+		"provider_token": "",
+		"currency":       "XTR",
+		"prices": []LabeledPrice{
+			{Label: title, Amount: stars},
+		},
+	}
+	return c.postJSON(ctx, "sendInvoice", body, nil)
+}
+
+func (c *Client) AnswerPreCheckoutQuery(ctx context.Context, queryID string, ok bool, errorMessage string) error {
+	payload := map[string]any{
+		"pre_checkout_query_id": queryID,
+		"ok":                    ok,
+	}
+	if !ok && errorMessage != "" {
+		payload["error_message"] = errorMessage
+	}
+	return c.postJSON(ctx, "answerPreCheckoutQuery", payload, nil)
+}
+
+func (c *Client) SendVideo(ctx context.Context, chatID int64, path string, caption string) error {
 	file, err := os.Open(path)
 	if err != nil {
 		return err
@@ -145,7 +193,7 @@ func (c *Client) SendDocument(ctx context.Context, chatID int64, path string, ca
 		}
 	}
 
-	part, err := writer.CreateFormFile("document", filepath.Base(path))
+	part, err := writer.CreateFormFile("video", filepath.Base(path))
 	if err != nil {
 		return err
 	}
@@ -156,7 +204,7 @@ func (c *Client) SendDocument(ctx context.Context, chatID int64, path string, ca
 		return err
 	}
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.apiURL+"/sendDocument", &body)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.apiURL+"/sendVideo", &body)
 	if err != nil {
 		return err
 	}
@@ -176,7 +224,7 @@ func (c *Client) SendDocument(ctx context.Context, chatID int64, path string, ca
 		return err
 	}
 	if !apiResp.OK {
-		return fmt.Errorf("telegram sendDocument failed: %s", apiResp.Description)
+		return fmt.Errorf("telegram sendVideo failed: %s", apiResp.Description)
 	}
 	return nil
 }
