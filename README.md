@@ -78,6 +78,20 @@ git pull
 docker compose up -d --build
 ```
 
+When TikTok downloads start failing after previously working, refresh the
+bundled `yt-dlp` extractor by rebuilding without Docker's layer cache:
+
+```bash
+docker compose build --no-cache bot
+docker compose up -d
+```
+
+You can confirm the bundled extractor version with:
+
+```bash
+docker compose exec bot yt-dlp --version
+```
+
 Keep your local `.env`, `config.json`, and `data/` directory outside git.
 
 ## CI/CD

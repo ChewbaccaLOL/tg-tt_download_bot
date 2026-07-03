@@ -46,7 +46,7 @@ printf 'video' > "$out"
 		t.Fatalf("read args: %v", err)
 	}
 	args := string(argsData)
-	for _, want := range []string{"--no-playlist", "bv*+ba/best", "--merge-output-format", "mp4"} {
+	for _, want := range []string{"--no-playlist", "bv*[ext=mp4]+ba[ext=m4a]/best[ext=mp4]/bv*+ba/best", "--merge-output-format", "mp4"} {
 		if !strings.Contains(args, want) {
 			t.Fatalf("yt-dlp args missing %q in:\n%s", want, args)
 		}

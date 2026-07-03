@@ -67,7 +67,7 @@ func (d *YTDLP) DownloadBest(ctx context.Context, rawURL, dir, id string) (strin
 	args := []string{
 		"--no-playlist",
 		"--restrict-filenames",
-		"-f", "bv*+ba/best",
+		"-f", "bv*[ext=mp4]+ba[ext=m4a]/best[ext=mp4]/bv*+ba/best",
 		"--merge-output-format", "mp4",
 		"-o", outputTemplate,
 		rawURL,
