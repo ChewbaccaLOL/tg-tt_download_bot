@@ -27,9 +27,11 @@ type CompactConfig struct {
 }
 
 type AccessConfig struct {
-	Mode              string  `json:"mode"`
-	WhitelistUserIDs  []int64 `json:"whitelist_user_ids"`
-	PaidDownloadStars int     `json:"paid_download_stars"`
+	Mode                       string  `json:"mode"`
+	WhitelistUserIDs           []int64 `json:"whitelist_user_ids"`
+	PaidDownloadStars          int     `json:"paid_download_stars"`
+	PaidDownloadStarsPerMinute int     `json:"paid_download_stars_per_minute"`
+	MaxPaidDurationMinutes     int     `json:"max_paid_duration_minutes"`
 }
 
 type Config struct {
@@ -89,11 +91,13 @@ func defaultConfig() Config {
 		CleanupAfterMinutes: 30,
 		YTDLPBin:            "yt-dlp",
 		FFmpegBin:           "ffmpeg",
-		AllowedDomains:      []string{"tiktok.com", "vm.tiktok.com", "vt.tiktok.com"},
+		AllowedDomains:      []string{"tiktok.com", "vm.tiktok.com", "vt.tiktok.com", "youtube.com", "youtu.be"},
 		Access: AccessConfig{
-			Mode:              AccessModePublic,
-			WhitelistUserIDs:  []int64{},
-			PaidDownloadStars: 3,
+			Mode:                       AccessModePublic,
+			WhitelistUserIDs:           []int64{},
+			PaidDownloadStars:          3,
+			PaidDownloadStarsPerMinute: 1,
+			MaxPaidDurationMinutes:     30,
 		},
 		Compact: CompactConfig{
 			MaxHeight:    720,
@@ -127,13 +131,19 @@ func applyDefaults(cfg *Config) {
 		cfg.FFmpegBin = "ffmpeg"
 	}
 	if len(cfg.AllowedDomains) == 0 {
-		cfg.AllowedDomains = []string{"tiktok.com", "vm.tiktok.com", "vt.tiktok.com"}
+		cfg.AllowedDomains = []string{"tiktok.com", "vm.tiktok.com", "vt.tiktok.com", "youtube.com", "youtu.be"}
 	}
 	if cfg.Access.Mode == "" {
 		cfg.Access.Mode = AccessModePublic
 	}
 	if cfg.Access.PaidDownloadStars <= 0 {
 		cfg.Access.PaidDownloadStars = 3
+	}
+	if cfg.Access.PaidDownloadStarsPerMinute <= 0 {
+		cfg.Access.PaidDownloadStarsPerMinute = 1
+	}
+	if cfg.Access.MaxPaidDurationMinutes <= 0 {
+		cfg.Access.MaxPaidDurationMinutes = 30
 	}
 	if cfg.Compact.MaxHeight <= 0 {
 		cfg.Compact.MaxHeight = 720

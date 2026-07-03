@@ -52,3 +52,45 @@ printf 'video' > "$out"
 		}
 	}
 }
+
+func TestProbeMetadataInvokesYTDLPAndParsesDuration(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("shell script test")
+	}
+
+	dir := t.TempDir()
+	argsPath := filepath.Join(dir, "args.txt")
+	scriptPath := filepath.Join(dir, "fake-yt-dlp")
+	script := `#!/bin/sh
+printf '%s\n' "$@" > "` + argsPath + `"
+printf '{"duration":125.4,"is_live":false,"live_status":"not_live"}'
+`
+	if err := os.WriteFile(scriptPath, []byte(script), 0o700); err != nil {
+		t.Fatalf("write script: %v", err)
+	}
+
+	metadata, err := NewYTDLP(scriptPath).ProbeMetadata(context.Background(), "https://youtu.be/abc")
+	if err != nil {
+		t.Fatalf("ProbeMetadata: %v", err)
+	}
+	if metadata.DurationSeconds != 125.4 {
+		t.Fatalf("DurationSeconds = %v, want 125.4", metadata.DurationSeconds)
+	}
+	if metadata.IsLive {
+		t.Fatal("IsLive = true, want false")
+	}
+	if metadata.LiveStatus != "not_live" {
+		t.Fatalf("LiveStatus = %q, want not_live", metadata.LiveStatus)
+	}
+
+	argsData, err := os.ReadFile(argsPath)
+	if err != nil {
+		t.Fatalf("read args: %v", err)
+	}
+	args := string(argsData)
+	for _, want := range []string{"--no-playlist", "--skip-download", "--dump-single-json"} {
+		if !strings.Contains(args, want) {
+			t.Fatalf("yt-dlp args missing %q in:\n%s", want, args)
+		}
+	}
+}

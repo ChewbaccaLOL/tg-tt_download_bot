@@ -18,7 +18,7 @@ cp .env.example .env
 cp config.example.json config.json
 ```
 
-The default config supports TikTok links and stores runtime data under `data/`.
+The default config supports TikTok and YouTube links and stores runtime data under `data/`.
 
 ## Start
 
@@ -27,4 +27,3 @@ docker compose up -d --build
 ```
 
 Then send `/start` to your bot.
-

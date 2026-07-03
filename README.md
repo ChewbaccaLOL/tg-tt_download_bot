@@ -1,13 +1,13 @@
-# Telegram TikTok Download Bot
+# Telegram TikTok and YouTube Download Bot
 
-A self-hosted Telegram bot for downloading TikTok videos.
+A self-hosted Telegram bot for downloading TikTok and YouTube videos.
 
 The bot has one user-facing quality setting:
 
 - `highest`: best available video and best available audio.
 - `compact`: optimized MP4 output with smaller file size.
 
-The first supported provider is TikTok. The code is structured so YouTube Shorts, Instagram Reels, and other providers can be added later through the same downloader flow.
+The first supported providers are TikTok and YouTube. The code is structured so Instagram Reels and other providers can be added later through the same downloader flow.
 
 Videos are downloaded to a temporary per-request directory, sent back as Telegram media, then removed locally.
 
@@ -46,7 +46,7 @@ Start the bot:
 docker compose up -d --build
 ```
 
-Open Telegram, send `/start` to your bot, then paste a TikTok URL.
+Open Telegram, send `/start` to your bot, then paste a TikTok or YouTube URL.
 
 ## Settings
 

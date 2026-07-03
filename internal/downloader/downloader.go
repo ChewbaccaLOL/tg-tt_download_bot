@@ -1,7 +1,9 @@
 package downloader
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
@@ -9,12 +11,50 @@ import (
 	"strings"
 )
 
+type Metadata struct {
+	DurationSeconds float64
+	IsLive          bool
+	LiveStatus      string
+}
+
 type YTDLP struct {
 	bin string
 }
 
 func NewYTDLP(bin string) *YTDLP {
 	return &YTDLP{bin: bin}
+}
+
+func (d *YTDLP) ProbeMetadata(ctx context.Context, rawURL string) (Metadata, error) {
+	args := []string{
+		"--no-playlist",
+		"--skip-download",
+		"--dump-single-json",
+		rawURL,
+	}
+
+	cmd := exec.CommandContext(ctx, d.bin, args...)
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	out, err := cmd.Output()
+	if err != nil {
+		return Metadata{}, fmt.Errorf("yt-dlp metadata probe failed: %w: %s", err, strings.TrimSpace(stderr.String()))
+	}
+
+	var result struct {
+		Duration   float64 `json:"duration"`
+		IsLive     bool    `json:"is_live"`
+		LiveStatus string  `json:"live_status"`
+	}
+	if err := json.Unmarshal(out, &result); err != nil {
+		return Metadata{}, fmt.Errorf("parse yt-dlp metadata: %w", err)
+	}
+
+	return Metadata{
+		DurationSeconds: result.Duration,
+		IsLive:          result.IsLive,
+		LiveStatus:      result.LiveStatus,
+	}, nil
 }
 
 func (d *YTDLP) DownloadBest(ctx context.Context, rawURL, dir, id string) (string, error) {

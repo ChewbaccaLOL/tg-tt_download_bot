@@ -7,7 +7,7 @@ import (
 )
 
 func TestIsSupportedURL(t *testing.T) {
-	allowed := []string{"tiktok.com", "vm.tiktok.com", "vt.tiktok.com"}
+	allowed := []string{"tiktok.com", "vm.tiktok.com", "vt.tiktok.com", "youtube.com", "youtu.be"}
 
 	tests := []struct {
 		name string
@@ -17,6 +17,8 @@ func TestIsSupportedURL(t *testing.T) {
 		{name: "tiktok canonical", raw: "https://www.tiktok.com/@user/video/123", want: true},
 		{name: "tiktok short", raw: "https://vm.tiktok.com/ZMabc/", want: true},
 		{name: "nested supported host", raw: "https://m.tiktok.com/v/123", want: true},
+		{name: "youtube canonical", raw: "https://www.youtube.com/watch?v=abc", want: true},
+		{name: "youtube short host", raw: "https://youtu.be/abc", want: true},
 		{name: "unsupported host", raw: "https://example.com/video/123", want: false},
 		{name: "not a url", raw: "hello", want: false},
 		{name: "unsupported scheme", raw: "ftp://tiktok.com/video/123", want: false},
@@ -46,7 +48,9 @@ func TestLoadConfigFromFileAndEnv(t *testing.T) {
   "access": {
     "mode": "whitelist_or_paid",
     "whitelist_user_ids": [42, 99],
-    "paid_download_stars": 5
+    "paid_download_stars": 5,
+    "paid_download_stars_per_minute": 2,
+    "max_paid_duration_minutes": 15
   },
   "compact": {
     "max_height": 480,
@@ -90,6 +94,12 @@ func TestLoadConfigFromFileAndEnv(t *testing.T) {
 	}
 	if cfg.Access.PaidDownloadStars != 5 {
 		t.Fatalf("PaidDownloadStars = %d, want 5", cfg.Access.PaidDownloadStars)
+	}
+	if cfg.Access.PaidDownloadStarsPerMinute != 2 {
+		t.Fatalf("PaidDownloadStarsPerMinute = %d, want 2", cfg.Access.PaidDownloadStarsPerMinute)
+	}
+	if cfg.Access.MaxPaidDurationMinutes != 15 {
+		t.Fatalf("MaxPaidDurationMinutes = %d, want 15", cfg.Access.MaxPaidDurationMinutes)
 	}
 }
 

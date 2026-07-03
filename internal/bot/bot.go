@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"log"
+	"math"
 	"os"
 	"path/filepath"
 	"strings"
@@ -38,11 +39,12 @@ type Bot struct {
 }
 
 type pendingPayment struct {
-	ChatID    int64
-	UserID    int64
-	URL       string
-	Stars     int
-	ExpiresAt time.Time
+	ChatID          int64
+	UserID          int64
+	URL             string
+	Stars           int
+	BillableMinutes int
+	ExpiresAt       time.Time
 }
 
 func New(deps Dependencies) *Bot {
@@ -104,7 +106,7 @@ func (b *Bot) handleUpdate(ctx context.Context, update telegram.Update) {
 
 	switch {
 	case strings.HasPrefix(text, "/start"), strings.HasPrefix(text, "/help"):
-		_ = b.tg.SendMessage(ctx, msg.Chat.ID, "Send me a TikTok URL and I will download it without keeping a local copy after upload. Use /settings to switch between highest quality and compact mode.")
+		_ = b.tg.SendMessage(ctx, msg.Chat.ID, "Send me a supported TikTok or YouTube URL and I will download it without keeping a local copy after upload. Use /settings to switch between highest quality and compact mode.")
 	case strings.HasPrefix(text, "/settings"):
 		b.sendSettings(ctx, msg.Chat.ID, userID(msg))
 	default:
@@ -112,7 +114,7 @@ func (b *Bot) handleUpdate(ctx context.Context, update telegram.Update) {
 			b.requestDownload(ctx, msg.Chat.ID, userID(msg), text)
 			return
 		}
-		_ = b.tg.SendMessage(ctx, msg.Chat.ID, "I can download supported TikTok links for now. Send /settings to change quality mode.")
+		_ = b.tg.SendMessage(ctx, msg.Chat.ID, "I can download supported TikTok and YouTube links for now. Send /settings to change quality mode.")
 	}
 }
 
@@ -144,21 +146,27 @@ func (b *Bot) requestDownload(ctx context.Context, chatID int64, userID int64, r
 	case accessAllowed:
 		go b.downloadAndSend(ctx, chatID, userID, rawURL)
 	case accessPaid:
-		payload, err := b.createPendingPayment(chatID, userID, rawURL)
+		price, err := b.pricePaidDownload(ctx, rawURL)
+		if err != nil {
+			log.Printf("price paid download: %v", err)
+			_ = b.tg.SendMessage(ctx, chatID, err.Error())
+			return
+		}
+
+		payload, err := b.createPendingPayment(chatID, userID, rawURL, price)
 		if err != nil {
 			log.Printf("create pending payment: %v", err)
 			_ = b.tg.SendMessage(ctx, chatID, "Could not create a payment request.")
 			return
 		}
 
-		stars := b.cfg.Access.PaidDownloadStars
 		err = b.tg.SendInvoice(
 			ctx,
 			chatID,
 			"Video download",
-			fmt.Sprintf("One non-whitelisted download. Whitelisted users download for free. Price: %d Telegram Stars.", stars),
+			fmt.Sprintf("Non-whitelisted download. Length: %d minute(s). Price: %d Telegram Stars. Whitelisted users download for free.", price.BillableMinutes, price.Stars),
 			payload,
-			stars,
+			price.Stars,
 		)
 		if err != nil {
 			b.deletePendingPayment(payload)
@@ -290,7 +298,58 @@ func (b *Bot) accessFor(userID int64) accessDecision {
 	}
 }
 
-func (b *Bot) createPendingPayment(chatID int64, userID int64, rawURL string) (string, error) {
+type paidDownloadPrice struct {
+	Stars           int
+	BillableMinutes int
+}
+
+func (b *Bot) pricePaidDownload(ctx context.Context, rawURL string) (paidDownloadPrice, error) {
+	probeCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+
+	metadata, err := b.downloader.ProbeMetadata(probeCtx, rawURL)
+	if err != nil {
+		return paidDownloadPrice{}, fmt.Errorf("Could not read the video length. Please try another link.")
+	}
+	return calculatePaidDownloadPrice(b.cfg.Access, metadata)
+}
+
+func calculatePaidDownloadPrice(access config.AccessConfig, metadata downloader.Metadata) (paidDownloadPrice, error) {
+	if metadata.IsLive || isLiveStatus(metadata.LiveStatus) {
+		return paidDownloadPrice{}, fmt.Errorf("Live or upcoming videos are not supported for paid downloads.")
+	}
+	if metadata.DurationSeconds <= 0 || math.IsNaN(metadata.DurationSeconds) || math.IsInf(metadata.DurationSeconds, 0) {
+		return paidDownloadPrice{}, fmt.Errorf("Could not read a clean video length. Please try another link.")
+	}
+
+	billableMinutes := int(math.Ceil(metadata.DurationSeconds / 60))
+	if billableMinutes < 1 {
+		billableMinutes = 1
+	}
+	if access.MaxPaidDurationMinutes > 0 && billableMinutes > access.MaxPaidDurationMinutes {
+		return paidDownloadPrice{}, fmt.Errorf("This video is %d minute(s), which is over the %d minute paid-download limit.", billableMinutes, access.MaxPaidDurationMinutes)
+	}
+
+	starsPerMinute := access.PaidDownloadStarsPerMinute
+	if starsPerMinute <= 0 {
+		starsPerMinute = 1
+	}
+	return paidDownloadPrice{
+		Stars:           billableMinutes * starsPerMinute,
+		BillableMinutes: billableMinutes,
+	}, nil
+}
+
+func isLiveStatus(status string) bool {
+	switch strings.ToLower(strings.TrimSpace(status)) {
+	case "is_live", "is_upcoming", "post_live":
+		return true
+	default:
+		return false
+	}
+}
+
+func (b *Bot) createPendingPayment(chatID int64, userID int64, rawURL string, price paidDownloadPrice) (string, error) {
 	random := make([]byte, 12)
 	if _, err := rand.Read(random); err != nil {
 		return "", err
@@ -300,11 +359,12 @@ func (b *Bot) createPendingPayment(chatID int64, userID int64, rawURL string) (s
 	b.paymentsMu.Lock()
 	defer b.paymentsMu.Unlock()
 	b.pendingPayments[payload] = pendingPayment{
-		ChatID:    chatID,
-		UserID:    userID,
-		URL:       rawURL,
-		Stars:     b.cfg.Access.PaidDownloadStars,
-		ExpiresAt: time.Now().Add(15 * time.Minute),
+		ChatID:          chatID,
+		UserID:          userID,
+		URL:             rawURL,
+		Stars:           price.Stars,
+		BillableMinutes: price.BillableMinutes,
+		ExpiresAt:       time.Now().Add(15 * time.Minute),
 	}
 	return payload, nil
 }
