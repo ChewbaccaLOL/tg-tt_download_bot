@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"github.com/chewbaccalol/tg-tt-download-bot/internal/bot"
 	"github.com/chewbaccalol/tg-tt-download-bot/internal/config"
@@ -33,6 +34,14 @@ func main() {
 	tg := telegram.NewClient(cfg.TelegramToken)
 	dl := downloader.NewYTDLP(cfg.YTDLPBin)
 	optimizer := video.NewOptimizer(cfg.FFmpegBin, cfg.Compact)
+
+	versionCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	if version, err := dl.Version(versionCtx); err != nil {
+		log.Printf("yt-dlp version unavailable: %v", err)
+	} else {
+		log.Printf("yt-dlp version: %s", version)
+	}
+	cancel()
 
 	app := bot.New(bot.Dependencies{
 		Config:     cfg,

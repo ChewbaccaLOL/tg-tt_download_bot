@@ -217,7 +217,7 @@ func (b *Bot) downloadAndSend(ctx context.Context, chatID int64, userID int64, r
 
 	sourcePath, err := b.downloader.DownloadBest(ctx, rawURL, workDir, "source")
 	if err != nil {
-		log.Printf("download failed: %v", err)
+		log.Printf("download failed for %q: %v", rawURL, err)
 		_ = b.tg.SendMessage(ctx, chatID, "Download failed. The link may be unavailable or unsupported.")
 		return
 	}

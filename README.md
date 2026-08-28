@@ -92,6 +92,12 @@ You can confirm the bundled extractor version with:
 docker compose exec bot yt-dlp --version
 ```
 
+To inspect recent failures, check the bot logs:
+
+```bash
+docker compose logs --tail=200 bot
+```
+
 Keep your local `.env`, `config.json`, and `data/` directory outside git.
 
 ## CI/CD

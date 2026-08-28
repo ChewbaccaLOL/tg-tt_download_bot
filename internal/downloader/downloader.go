@@ -25,8 +25,18 @@ func NewYTDLP(bin string) *YTDLP {
 	return &YTDLP{bin: bin}
 }
 
+func (d *YTDLP) Version(ctx context.Context) (string, error) {
+	cmd := exec.CommandContext(ctx, d.bin, "--version")
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return "", fmt.Errorf("yt-dlp version failed: %w: %s", err, strings.TrimSpace(string(out)))
+	}
+	return strings.TrimSpace(string(out)), nil
+}
+
 func (d *YTDLP) ProbeMetadata(ctx context.Context, rawURL string) (Metadata, error) {
 	args := []string{
+		"--no-cache-dir",
 		"--no-playlist",
 		"--skip-download",
 		"--dump-single-json",
@@ -65,6 +75,7 @@ func (d *YTDLP) DownloadBest(ctx context.Context, rawURL, dir, id string) (strin
 	prefix := filepath.Join(dir, id)
 	outputTemplate := prefix + ".%(ext)s"
 	args := []string{
+		"--no-cache-dir",
 		"--no-playlist",
 		"--restrict-filenames",
 		"-f", "bv*[ext=mp4]+ba[ext=m4a]/best[ext=mp4]/bv*+ba/best",

@@ -46,10 +46,37 @@ printf 'video' > "$out"
 		t.Fatalf("read args: %v", err)
 	}
 	args := string(argsData)
-	for _, want := range []string{"--no-playlist", "bv*[ext=mp4]+ba[ext=m4a]/best[ext=mp4]/bv*+ba/best", "--merge-output-format", "mp4"} {
+	for _, want := range []string{"--no-cache-dir", "--no-playlist", "bv*[ext=mp4]+ba[ext=m4a]/best[ext=mp4]/bv*+ba/best", "--merge-output-format", "mp4"} {
 		if !strings.Contains(args, want) {
 			t.Fatalf("yt-dlp args missing %q in:\n%s", want, args)
 		}
+	}
+}
+
+func TestVersionInvokesYTDLPVersion(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("shell script test")
+	}
+
+	dir := t.TempDir()
+	scriptPath := filepath.Join(dir, "fake-yt-dlp")
+	script := `#!/bin/sh
+if [ "$1" = "--version" ]; then
+  printf '2026.08.19\n'
+  exit 0
+fi
+exit 1
+`
+	if err := os.WriteFile(scriptPath, []byte(script), 0o700); err != nil {
+		t.Fatalf("write script: %v", err)
+	}
+
+	version, err := NewYTDLP(scriptPath).Version(context.Background())
+	if err != nil {
+		t.Fatalf("Version: %v", err)
+	}
+	if version != "2026.08.19" {
+		t.Fatalf("version = %q, want 2026.08.19", version)
 	}
 }
 
@@ -88,7 +115,7 @@ printf '{"duration":125.4,"is_live":false,"live_status":"not_live"}'
 		t.Fatalf("read args: %v", err)
 	}
 	args := string(argsData)
-	for _, want := range []string{"--no-playlist", "--skip-download", "--dump-single-json"} {
+	for _, want := range []string{"--no-cache-dir", "--no-playlist", "--skip-download", "--dump-single-json"} {
 		if !strings.Contains(args, want) {
 			t.Fatalf("yt-dlp args missing %q in:\n%s", want, args)
 		}
