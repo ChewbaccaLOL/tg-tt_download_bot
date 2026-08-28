@@ -11,7 +11,7 @@ FROM debian:bookworm-slim
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends ca-certificates ffmpeg python3 python3-pip \
-    && pip3 install --break-system-packages --no-cache-dir yt-dlp \
+    && pip3 install --break-system-packages --no-cache-dir "yt-dlp[default,curl-cffi]" \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
@@ -23,4 +23,3 @@ ENV CONFIG_PATH=/app/config.json
 
 VOLUME ["/app/data"]
 CMD ["tg-video-bot"]
-

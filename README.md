@@ -92,6 +92,13 @@ You can confirm the bundled extractor version with:
 docker compose exec bot yt-dlp --version
 ```
 
+TikTok may also require browser impersonation support. Confirm that the image
+has available impersonation targets with:
+
+```bash
+docker compose exec bot yt-dlp --list-impersonate-targets
+```
+
 To inspect recent failures, check the bot logs:
 
 ```bash
